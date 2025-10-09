@@ -3,4 +3,4 @@
 *.a
 *.run
 *.out
-/test
+/test/*.run
