@@ -20,7 +20,7 @@ enum Val {
 enum Reg {
     RAX,
     RSP,
-    RBX,
+    RCX,
 }
 
 #[derive(Debug)]
@@ -64,14 +64,14 @@ fn val_to_str(v: &Val) -> String {
         Val::Reg(reg) => match reg {
             Reg::RAX => "rax".to_string(),
             Reg::RSP => "rsp".to_string(),
-            Reg::RBX => "rbx".to_string(),
+            Reg::RCX => "rcx".to_string(),
         },
         Val::Imm(n) => format!("{}", n),
         Val::RegOffset(reg, offset) => {
             let reg_str = match reg {
                 Reg::RAX => "rax",
                 Reg::RSP => "rsp",
-                Reg::RBX => "rbx",
+                Reg::RCX => "rcx",
             };
             format!("[{} - {}]", reg_str, -offset)
         }
@@ -127,9 +127,9 @@ fn compile_to_instrs(e: &Expr, si: i32, env: &HashMap<String, i32>, defines: &Ha
                     code.push(Instr::IAdd(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, si)));
                 }
                 Op2::Minus => {
-                    code.push(Instr::IMov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)));
+                    code.push(Instr::IMov(Val::Reg(Reg::RCX), Val::Reg(Reg::RAX)));
                     code.push(Instr::IMov(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, si)));
-                    code.push(Instr::ISub(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
+                    code.push(Instr::ISub(Val::Reg(Reg::RAX), Val::Reg(Reg::RCX)));
                 }
                 Op2::Times => {
                     code.push(Instr::IMul(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, si)));
@@ -323,16 +323,16 @@ fn instr_to_dynasm(instr: &Instr, ops: &mut Assembler) {
                         ; mov rax, QWORD *n as i64
                     );
                 }
-                (Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)) => {
+                (Val::Reg(Reg::RAX), Val::Reg(Reg::RCX)) => {
                     dynasm!(ops
                         ; .arch x64
-                        ; mov rax, rbx
+                        ; mov rax, rcx
                     );
                 }
-                (Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)) => {
+                (Val::Reg(Reg::RCX), Val::Reg(Reg::RAX)) => {
                     dynasm!(ops
                         ; .arch x64
-                        ; mov rbx, rax
+                        ; mov rcx, rax
                     );
                 }
                 (Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, offset)) => {
@@ -360,10 +360,10 @@ fn instr_to_dynasm(instr: &Instr, ops: &mut Assembler) {
                         ; add rax, *n as i32
                     );
                 }
-                (Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)) => {
+                (Val::Reg(Reg::RAX), Val::Reg(Reg::RCX)) => {
                     dynasm!(ops
                         ; .arch x64
-                        ; add rax, rbx
+                        ; add rax, rcx
                     );
                 }
                 (Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, offset)) => {
@@ -384,10 +384,10 @@ fn instr_to_dynasm(instr: &Instr, ops: &mut Assembler) {
                         ; sub rax, *n as i32
                     );
                 }
-                (Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)) => {
+                (Val::Reg(Reg::RAX), Val::Reg(Reg::RCX)) => {
                     dynasm!(ops
                         ; .arch x64
-                        ; sub rax, rbx
+                        ; sub rax, rcx
                     );
                 }
                 (Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, offset)) => {
@@ -408,10 +408,10 @@ fn instr_to_dynasm(instr: &Instr, ops: &mut Assembler) {
                         ; imul rax, rax, *n as i32
                     );
                 }
-                (Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)) => {
+                (Val::Reg(Reg::RAX), Val::Reg(Reg::RCX)) => {
                     dynasm!(ops
                         ; .arch x64
-                        ; imul rax, rbx
+                        ; imul rax, rcx
                     );
                 }
                 (Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, offset)) => {
