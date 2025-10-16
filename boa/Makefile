@@ -19,8 +19,9 @@ test/%.debug: test/%.snek src/main.rs
 clean:
 	rm -f test/*.s test/*.run runtime/*.o runtime/*.a
 
-repl:
-	cargo run --target x86_64-apple-darwin -- -i
+# JIT execute only (no assembly file generated)
+repl: 
+	cargo run --target x86_64-apple-darwin -- -i 
 
 # Convenience targets
 .PHONY: clean repl

@@ -1,6 +1,6 @@
 use std::env;
 use std::fs::File;
-use std::io::prelude::*;
+use std::io::{self, prelude::*, BufRead};
 
 use sexp::Atom::*;
 use sexp::*;
@@ -53,6 +53,12 @@ enum Expr {
     BinOp(Op2, Box<Expr>, Box<Expr>),
 }
 
+#[derive(Debug)]
+enum ReplEntry {
+    Expr(Expr),
+    Define(String, Box<Expr>),
+}
+
 fn val_to_str(v: &Val) -> String {
     match v {
         Val::Reg(reg) => match reg {
@@ -81,19 +87,24 @@ fn instr_to_str(i: &Instr) -> String {
     }
 }
 
-fn compile_to_instrs(e: &Expr, si: i32, env: &HashMap<String, i32>) -> Vec<Instr> {
+fn compile_to_instrs(e: &Expr, si: i32, env: &HashMap<String, i32>, defines: &HashMap<String, i64>) -> Vec<Instr> {
     match e {
         Expr::Number(n) => vec![Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(*n))],
         Expr::Id(name) => {
+            // Check stack environment first to allow shadowing of defined variables
             if let Some(&offset) = env.get(name) {
                 vec![Instr::IMov(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, offset))]
+            }
+            // Otherwise check if it's a defined variable (stored on heap)
+            else if let Some(&val) = defines.get(name) {
+                vec![Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(val as i32))]
             } 
             else {
                 panic!("Unbound variable identifier {}", name);
             }
         }
         Expr::UnOp(op, expr) => {
-            let mut code = compile_to_instrs(expr, si, env);
+            let mut code = compile_to_instrs(expr, si, env, defines);
             match op {
                 Op1::Add1 => code.push(Instr::IAdd(Val::Reg(Reg::RAX), Val::Imm(1))),
                 Op1::Sub1 => code.push(Instr::ISub(Val::Reg(Reg::RAX), Val::Imm(1))),
@@ -101,13 +112,13 @@ fn compile_to_instrs(e: &Expr, si: i32, env: &HashMap<String, i32>) -> Vec<Instr
             code
         }
         Expr::BinOp(op, left, right) => {
-            let mut code = compile_to_instrs(left, si, env);
+            let mut code = compile_to_instrs(left, si, env, defines);
             
             // Save left result on stack
             code.push(Instr::IMov(Val::RegOffset(Reg::RSP, si), Val::Reg(Reg::RAX)));
             
             // Compile right
-            let right_code = compile_to_instrs(right, si - 8, env);
+            let right_code = compile_to_instrs(right, si - 8, env, defines);
             code.extend(right_code);
             
             // Perform operation
@@ -142,7 +153,7 @@ fn compile_to_instrs(e: &Expr, si: i32, env: &HashMap<String, i32>) -> Vec<Instr
             
             // Compile each binding
             for (name, expr) in bindings.iter() {
-                let expr_code = compile_to_instrs(expr, current_si - 8, &new_env);
+                let expr_code = compile_to_instrs(expr, current_si - 8, &new_env, defines);
                 code.extend(expr_code);
                 
                 // Store result on stack
@@ -152,7 +163,7 @@ fn compile_to_instrs(e: &Expr, si: i32, env: &HashMap<String, i32>) -> Vec<Instr
             }
             
             // Compile body with new environment
-            let body_code = compile_to_instrs(body, current_si, &new_env);
+            let body_code = compile_to_instrs(body, current_si, &new_env, defines);
             code.extend(body_code);
             
             code
@@ -161,7 +172,7 @@ fn compile_to_instrs(e: &Expr, si: i32, env: &HashMap<String, i32>) -> Vec<Instr
 }
 
 fn compile(e: &Expr) -> String {
-    let instrs = compile_to_instrs(e, -8, &HashMap::new());
+    let instrs = compile_to_instrs(e, -8, &HashMap::new(), &HashMap::new());
     let mut asm_code = String::new();
     
     for instr in instrs {
@@ -201,7 +212,7 @@ fn parse_expr(s: &Sexp) -> Expr {
         Sexp::Atom(S(name)) => {
             // reserved words
             match name.as_str() {
-                "let" | "add1" | "sub1" | "+" | "-" | "*" => {
+                "let" | "add1" | "sub1" | "+" | "-" | "*" | "define" => {
                     panic!("used reserved word {}", name)
                 }
                 _ => Expr::Id(name.to_string()),
@@ -267,9 +278,35 @@ fn parse_expr(s: &Sexp) -> Expr {
     }
 }
 
+fn parse_repl_entry(s: &Sexp, depth: usize) -> Result<ReplEntry, String> {
+    match s {
+        Sexp::List(vec) if !vec.is_empty() => {
+            if let Sexp::Atom(S(op)) = &vec[0] {
+                if op == "define" {
+                    if depth > 0 {
+                        return Err("Invalid".to_string());
+                    }
+                    if vec.len() != 3 {
+                        return Err("Invalid: define takes exactly two arguments".to_string());
+                    }
+                    let name = match &vec[1] {
+                        Sexp::Atom(S(s)) => s.clone(),
+                        _ => return Err("Invalid: define name must be identifier".to_string()),
+                    };
+                    let expr = parse_expr(&vec[2]);
+                    return Ok(ReplEntry::Define(name, Box::new(expr)));
+                }
+            }
+        }
+        _ => {}
+    }
+    
+    Ok(ReplEntry::Expr(parse_expr(s)))
+}
+
 // JIT compilation - reuses compile_to_instrs!
-fn compile_to_jit(e: &Expr, ops: &mut Assembler) {
-    let instrs = compile_to_instrs(e, -8, &HashMap::new());
+fn compile_to_jit(e: &Expr, ops: &mut Assembler, defines: &HashMap<String, i64>) {
+    let instrs = compile_to_instrs(e, -8, &HashMap::new(), defines);
     
     for instr in &instrs {
         instr_to_dynasm(instr, ops);
@@ -390,9 +427,147 @@ fn instr_to_dynasm(instr: &Instr, ops: &mut Assembler) {
     }
 }
 
+fn run_repl() -> io::Result<()> {
+    let mut ops = dynasmrt::x64::Assembler::new().unwrap();
+    let mut defines: HashMap<String, i64> = HashMap::new();
+    
+    let stdin = io::stdin();
+    let mut reader = stdin.lock();
+    
+    loop {
+        print!("> ");
+        io::stdout().flush()?;
+        
+        let mut input = String::new();
+        reader.read_line(&mut input)?;
+        
+        let input = input.trim();
+        
+        // Check for exit commands
+        if input == "exit" || input == "quit" {
+            break;
+        }
+        
+        if input.is_empty() {
+            continue;
+        }
+        
+        // Parse the input
+        let sexp = match sexp::parse(input) {
+            Ok(s) => s,
+            Err(_e) => {
+                println!("Invalid: parse error");
+                continue;
+            }
+        };
+        
+        // Parse into ReplEntry
+        let entry = match parse_repl_entry(&sexp, 0) {
+            Ok(e) => e,
+            Err(msg) => {
+                println!("{}", msg);
+                continue;
+            }
+        };
+        
+        match entry {
+            ReplEntry::Define(name, expr) => {
+                // Check for duplicate definition
+                if defines.contains_key(&name) {
+                    println!("Duplicate binding");
+                    continue;
+                }
+                
+                // Evaluate the expression
+                let start = ops.offset();
+                
+                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    compile_to_jit(&expr, &mut ops, &defines);
+                })) {
+                    Ok(_) => {}
+                    Err(_) => {
+                        println!("Invalid");
+                        continue;
+                    }
+                }
+                
+                dynasm!(ops ; .arch x64 ; ret);
+                
+                match ops.commit() {
+                    Ok(_) => {}
+                    Err(_) => {
+                        println!("Invalid");
+                        continue;
+                    }
+                }
+                
+                let reader = ops.reader();
+                let buf = reader.lock();
+                let jitted_fn: extern "C" fn() -> i64 = unsafe { mem::transmute(buf.ptr(start)) };
+                let result = jitted_fn();
+                
+                // Store the result
+                defines = defines.update(name, result);
+                // Don't print anything for define
+            }
+            ReplEntry::Expr(expr) => {
+                let start = ops.offset();
+                
+                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    compile_to_jit(&expr, &mut ops, &defines);
+                })) {
+                    Ok(_) => {}
+                    Err(_) => {
+                        println!("Invalid");
+                        continue;
+                    }
+                }
+                
+                dynasm!(ops ; .arch x64 ; ret);
+                
+                match ops.commit() {
+                    Ok(_) => {}
+                    Err(_) => {
+                        println!("Invalid");
+                        continue;
+                    }
+                }
+                
+                let reader = ops.reader();
+                let buf = reader.lock();
+                let jitted_fn: extern "C" fn() -> i64 = unsafe { mem::transmute(buf.ptr(start)) };
+                let result = jitted_fn();
+                
+                println!("{}", result);
+            }
+        }
+    }
+    
+    Ok(())
+}
+
 fn main() -> std::io::Result<()> {
     let args: Vec<String> = env::args().collect();
 
+    if args.len() < 2 {
+        eprintln!("Usage: {} <-c|-e|-g|-i> <input.snek> [output.s]", args[0]);
+        eprintln!("  -c: Compile to assembly file (requires output file)");
+        eprintln!("  -e: Execute directly using JIT compilation");
+        eprintln!("  -g: Do both - execute and generate assembly");
+        eprintln!("  -i: Interactive REPL mode");
+        std::process::exit(1);
+    }
+
+    let flag = &args[1];
+    
+    match flag.as_str() {
+        "-i" => {
+            // REPL mode
+            return run_repl();
+        }
+        _ => {}
+    }
+    
     if args.len() < 3 {
         eprintln!("Usage: {} <-c|-e|-g> <input.snek> [output.s]", args[0]);
         eprintln!("  -c: Compile to assembly file (requires output file)");
@@ -401,7 +576,6 @@ fn main() -> std::io::Result<()> {
         std::process::exit(1);
     }
 
-    let flag = &args[1];
     let in_name = &args[2];
     
     let mut in_file = File::open(in_name)?;
@@ -443,7 +617,7 @@ our_code_starts_here:
             // JIT compilation and execution only
             let mut ops = dynasmrt::x64::Assembler::new().unwrap();
             let start = ops.offset();
-            compile_to_jit(&expr, &mut ops);
+            compile_to_jit(&expr, &mut ops, &HashMap::new());
             dynasm!(ops ; .arch x64 ; ret);
 
             let buf = ops.finalize().unwrap();
@@ -463,7 +637,7 @@ our_code_starts_here:
             // JIT compilation and execution
             let mut ops = dynasmrt::x64::Assembler::new().unwrap();
             let start = ops.offset();
-            compile_to_jit(&expr, &mut ops);
+            compile_to_jit(&expr, &mut ops, &HashMap::new());
             dynasm!(ops ; .arch x64 ; ret);
 
             let buf = ops.finalize().unwrap();
@@ -488,7 +662,7 @@ our_code_starts_here:
         }
         _ => {
             eprintln!("Error: Unknown flag '{}'", flag);
-            eprintln!("Usage: {} <-c|-e|-g> <input.snek> [output.s]", args[0]);
+            eprintln!("Usage: {} <-c|-e|-g|-i> <input.snek> [output.s]", args[0]);
             std::process::exit(1);
         }
     }
