@@ -1,6 +1,4 @@
 /target
-*.o
-*.a
 *.run
 *.out
 /test/*.run
