@@ -2,31 +2,30 @@ section .text
 global our_code_starts_here
 extern snek_error
 our_code_starts_here:
-  mov rax, 20
+  mov rax, 10
   mov [rsp - 8], rax
-  mov rax, 198
-  mov [rsp - 24], rax
-  mov rax, [rsp - 24]
-  mov [rsp - 32], rax
+  mov rax, [rsp - 8]
+  mov [rsp - 16], rax
   mov rax, 2
   mov rcx, rax
-  or rcx, [rsp - 32]
+  or rcx, [rsp - 16]
   test rcx, 1
   jne error_invalid_argument
-  add rax, [rsp - 32]
+  add rax, [rsp - 16]
   jo error_overflow
-  mov [rsp - 16], rax
+  mov [rsp - 8], rax
   mov rax, [rsp - 8]
-  mov [rsp - 32], rax
-  mov rax, 10
+  mov [rsp - 16], rax
+  mov rax, 4
   mov rcx, rax
-  or rcx, [rsp - 32]
+  or rcx, [rsp - 16]
   test rcx, 1
   jne error_invalid_argument
-  add rax, [rsp - 32]
+  sar rax, 1
+  imul rax, [rsp - 16]
   jo error_overflow
-  mov [rsp - 24], rax
-  mov rax, [rsp - 24]
+  mov [rsp - 8], rax
+  mov rax, [rsp - 8]
   ret
 
 error_overflow:

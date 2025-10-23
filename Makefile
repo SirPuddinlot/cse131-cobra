@@ -1,3 +1,10 @@
+# compile everything aot at once
+test/%.all: test/%.snek src/main.rs runtime/start.rs
+	cargo run --target x86_64-apple-darwin -- $< test/$*.s
+	nasm -f macho64 test/$*.s -o runtime/our_code.o
+	ar rcs runtime/libour_code.a runtime/our_code.o
+	rustc --target x86_64-apple-darwin -L runtime/ runtime/start.rs -o test/$*.run
+
 # Compile .snek to .s (AOT compilation)
 test/%.s: test/%.snek src/main.rs
 	cargo run --target x86_64-apple-darwin -- -c $< test/$*.s
@@ -8,9 +15,10 @@ test/%.run: test/%.s runtime/start.rs
 	ar rcs runtime/libour_code.a runtime/our_code.o
 	rustc --target x86_64-apple-darwin -L runtime/ runtime/start.rs -o test/$*.run
 
+ARG ?= 
 # JIT execute only (no assembly file generated)
 test/%.jit: test/%.snek src/main.rs
-	cargo run --target x86_64-apple-darwin -- -e test/$*.snek
+	cargo run --target x86_64-apple-darwin -- -e test/$*.snek $(ARG)
 
 # Both JIT execute and generate assembly (debugging)
 test/%.debug: test/%.snek src/main.rs
