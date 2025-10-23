@@ -45,10 +45,24 @@ pub fn run_repl() -> io::Result<()> {
         };
         
         // Parse into ReplEntry
-        let entry = match parse_repl_entry(&sexp, 0) {
-            Ok(e) => e,
-            Err(msg) => {
+        // let entry = match parse_repl_entry(&sexp, 0) {
+        //     Ok(e) => e,
+        //     Err(msg) => {
+        //         println!("{}", msg);
+        //         continue;
+        //     }
+        // };
+        // Parse into ReplEntry - catch panics from parser
+        let entry = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            parse_repl_entry(&sexp, 0)
+        })) {
+            Ok(Ok(e)) => e,
+            Ok(Err(msg)) => {
                 println!("{}", msg);
+                continue;
+            }
+            Err(_) => {
+                // println!("Invalid");
                 continue;
             }
         };
@@ -69,7 +83,7 @@ pub fn run_repl() -> io::Result<()> {
                 })) {
                     Ok(_) => {}
                     Err(_) => {
-                        println!("Invalid");
+                        // println!("Invalid");
                         continue;
                     }
                 }
@@ -101,7 +115,7 @@ pub fn run_repl() -> io::Result<()> {
                 })) {
                     Ok(_) => {}
                     Err(_) => {
-                        println!("Invalid");
+                        // println!("Invalid");
                         continue;
                     }
                 }

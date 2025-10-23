@@ -1,5 +1,9 @@
+use std::sync::atomic::AtomicBool;
+use crate::Ordering;
 pub const TRUE_VAL: i64 = 1;
 pub const FALSE_VAL: i64 = 3;
+
+pub static REPL: AtomicBool = AtomicBool::new(false);
 
 pub fn parse_input(input: &str) -> i64 {
     match input {
@@ -25,9 +29,15 @@ pub fn print_result(val: i64) {
     if val & 1 == 1 {
         if val == TRUE_VAL {
             println!("true");
-        } else if val == FALSE_VAL {
+        } 
+        else if val == FALSE_VAL {
             println!("false");
-        } else {
+        } 
+        // else if REPL.load(Ordering::SeqCst) {
+        //     // println!("{}", REPL.load(Ordering::SeqCst));
+        //     eprintln!("Invalid boolean value: {}", val);
+        // }
+        else {
             eprintln!("Invalid boolean value: {}", val);
             std::process::exit(1);
         }
@@ -46,5 +56,7 @@ pub extern "C" fn snek_error(errcode: i64) {
     } else {
         eprintln!("error code: {}", errcode);
     }
-    std::process::exit(1);
+    if !REPL.load(Ordering::SeqCst) {
+        std::process::exit(1);
+    }
 }

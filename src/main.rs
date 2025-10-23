@@ -6,6 +6,8 @@ mod compiler;
 mod jit;
 mod repl;
 mod helpers;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use std::env;
 use std::fs::File;
@@ -37,6 +39,11 @@ fn main() -> std::io::Result<()> {
     match flag.as_str() {
         "-i" => {
             // REPL mode
+            //println!("REPL flag is before running: {}", REPL.load(Ordering::SeqCst));
+
+            REPL.store(true, Ordering::SeqCst);
+            // println!("REPL flag is after: {}", REPL.load(Ordering::SeqCst));
+
             return run_repl();
         }
         _ => {}
@@ -72,7 +79,7 @@ fn main() -> std::io::Result<()> {
                 "section .text\nglobal our_code_starts_here\nextern snek_error\nour_code_starts_here:\n{}",
                 result
             );
-            println!("{}", asm_program);
+            //println!("{}", asm_program);
             let mut out_file = File::create(out_name)?;
             out_file.write_all(asm_program.as_bytes())?;
         }
